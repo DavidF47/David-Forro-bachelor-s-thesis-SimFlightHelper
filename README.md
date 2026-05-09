@@ -1,4 +1,4 @@
-# David-Forr-bachelor-s-thesis
+# David-Forró-bachelor-s-thesis
 # Pilot Support Application for Flight Simulation
 
 This repository contains the practical implementation of my bachelor thesis project:
