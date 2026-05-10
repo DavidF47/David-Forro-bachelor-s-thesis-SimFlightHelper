@@ -3,6 +3,8 @@ using System.IO;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 using System.Linq;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Thesis_testing_1
 {
@@ -58,17 +60,19 @@ namespace Thesis_testing_1
 
         private void button1_Click(object sender, EventArgs e)
         {
-            string icao = ICAOTextBox.Text.Trim().ToUpperInvariant();
+            string input = ICAOTextBox.Text.Trim();
 
-            if (string.IsNullOrEmpty(icao))
+            if (string.IsNullOrEmpty(input))
             {
-                MessageBox.Show("Please enter an ICAO code.");
+                MessageBox.Show("Please enter an ICAO code or city name.");
                 return;
             }
 
-            if (!(icao.Length == 4 && icao.All(char.IsLetter)))
+            string icao = ResolveInputToIcao(input);
+
+            if (string.IsNullOrWhiteSpace(icao))
             {
-                MessageBox.Show("Please enter a valid 4-letter ICAO code, for example LHBP or LDSP.");
+                MessageBox.Show("Airport could not be found. Please enter a valid ICAO code or city name.");
                 return;
             }
 
@@ -91,6 +95,199 @@ namespace Thesis_testing_1
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
+        }
+
+        private string ResolveInputToIcao(string input)
+        {
+            string value = input.Trim();
+
+            if (value.Length == 4 && value.All(char.IsLetter))
+                return value.ToUpperInvariant();
+
+            // EN: If the user typed a city name, the program tries to find its airport ICAO code.
+            // HU: Ha a felhasználó városnevet írt be, a program megpróbálja megkeresni a hozzá tartozó ICAO-kódot.
+            string fromAirportsCsv = FindIcaoByCityName(value);
+
+            if (!string.IsNullOrWhiteSpace(fromAirportsCsv))
+                return fromAirportsCsv.ToUpperInvariant();
+
+            return null;
+        }
+
+        private string FindIcaoByCityName(string cityName)
+        {
+            try
+            {
+                string airportsCsv = DetectAirportsCsv();
+
+                if (string.IsNullOrWhiteSpace(airportsCsv) || !File.Exists(airportsCsv))
+                    return null;
+
+                using (var sr = new StreamReader(airportsCsv, Encoding.UTF8, true))
+                {
+                    string headerLine = sr.ReadLine();
+
+                    if (string.IsNullOrWhiteSpace(headerLine))
+                        return null;
+
+                    var header = CsvSplit(headerLine);
+                    var col = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                    for (int i = 0; i < header.Count; i++)
+                    {
+                        string h = (header[i] ?? "").Trim();
+
+                        if (!col.ContainsKey(h))
+                            col[h] = i;
+                    }
+
+                    int idxMunicipality = GetCol(col, "municipality", "city");
+                    int idxName = GetCol(col, "name");
+                    int idxGps = GetCol(col, "gps_code");
+                    int idxIdent = GetCol(col, "ident");
+                    int idxIcao = GetCol(col, "icao_code");
+
+                    string wanted = cityName.Trim();
+
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line))
+                            continue;
+
+                        var fields = CsvSplit(line);
+
+                        string municipality = idxMunicipality >= 0 ? SafeGet(fields, idxMunicipality) : "";
+                        string airportName = idxName >= 0 ? SafeGet(fields, idxName) : "";
+
+                        bool cityMatches =
+                            string.Equals(municipality, wanted, StringComparison.OrdinalIgnoreCase) ||
+                            airportName.IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                        if (!cityMatches)
+                            continue;
+
+                        string icao = "";
+
+                        if (idxIcao >= 0)
+                            icao = SafeGet(fields, idxIcao);
+
+                        if (string.IsNullOrWhiteSpace(icao) && idxGps >= 0)
+                            icao = SafeGet(fields, idxGps);
+
+                        if (string.IsNullOrWhiteSpace(icao) && idxIdent >= 0)
+                            icao = SafeGet(fields, idxIdent);
+
+                        icao = (icao ?? "").Trim().ToUpperInvariant();
+
+                        if (icao.Length == 4 && icao.All(char.IsLetter))
+                            return icao;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private string DetectAirportsCsv()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "airports.csv"),
+                Path.Combine(baseDir, "Data", "airports.csv"),
+                Path.Combine(baseDir, "Data", "Navdata", "airports.csv"),
+                Path.Combine(baseDir, "Data", "NavData", "airports.csv")
+            };
+
+            foreach (string path in candidates)
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+
+            string dataRoot = Path.Combine(baseDir, "Data");
+
+            if (Directory.Exists(dataRoot))
+            {
+                try
+                {
+                    return Directory
+                        .EnumerateFiles(dataRoot, "airports.csv", SearchOption.AllDirectories)
+                        .FirstOrDefault();
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+
+        private static int GetCol(Dictionary<string, int> col, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (col.TryGetValue(name, out int index))
+                    return index;
+            }
+
+            return -1;
+        }
+
+        private static string SafeGet(List<string> fields, int index)
+        {
+            if (index < 0 || index >= fields.Count)
+                return "";
+
+            return fields[index] ?? "";
+        }
+
+        private static List<string> CsvSplit(string line)
+        {
+            var result = new List<string>();
+
+            if (line == null)
+                return result;
+
+            var sb = new StringBuilder();
+            bool inQuotes = false;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        sb.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = !inQuotes;
+                    }
+
+                    continue;
+                }
+
+                if (c == ',' && !inQuotes)
+                {
+                    result.Add(sb.ToString());
+                    sb.Clear();
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            result.Add(sb.ToString());
+            return result;
         }
 
         private bool FetchLocalCharts(string icao)
