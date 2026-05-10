@@ -61,6 +61,7 @@ namespace Thesis_testing_1
         public Planner()
         {
             InitializeComponent();
+
             this.MaximizeBox = false;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
 
@@ -145,7 +146,9 @@ namespace Thesis_testing_1
                 {
                     var hit = Directory.EnumerateFiles(dataRoot, "airports.csv", SearchOption.AllDirectories)
                                        .FirstOrDefault();
-                    if (!string.IsNullOrWhiteSpace(hit)) return hit;
+
+                    if (!string.IsNullOrWhiteSpace(hit))
+                        return hit;
                 }
                 catch
                 {
@@ -170,7 +173,9 @@ namespace Thesis_testing_1
                 for (int i = 0; i < header.Count; i++)
                 {
                     var h = (header[i] ?? "").Trim();
-                    if (!col.ContainsKey(h)) col[h] = i;
+
+                    if (!col.ContainsKey(h))
+                        col[h] = i;
                 }
 
                 int idxLat = GetCol(col, "latitude_deg", "lat", "latitude");
@@ -196,8 +201,8 @@ namespace Thesis_testing_1
                     if (string.IsNullOrWhiteSpace(icao) && idxIdent >= 0) icao = SafeGet(fields, idxIdent);
 
                     icao = (icao ?? "").Trim().ToUpperInvariant();
-                    if (!IsValidIcao(icao)) continue;
 
+                    if (!IsValidIcao(icao)) continue;
                     if (idxLat < 0 || idxLon < 0) continue;
 
                     if (!TryParseDoubleInvariant(SafeGet(fields, idxLat), out double lat)) continue;
@@ -480,7 +485,9 @@ namespace Thesis_testing_1
 
                 string rest = line.Substring(colon + 1);
                 int semi = rest.IndexOf(';');
-                if (semi >= 0) rest = rest.Substring(0, semi);
+
+                if (semi >= 0)
+                    rest = rest.Substring(0, semi);
 
                 var parts = rest.Split(',');
                 if (parts.Length < 3) continue;
@@ -553,7 +560,12 @@ namespace Thesis_testing_1
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "ThesisTesting1_WebView2");
 
-                var env = await CoreWebView2Environment.CreateAsync(null, userData);
+                // EN: GPU rendering is disabled because WebView2 could silently crash on some systems.
+                // HU: A GPU renderelés ki van kapcsolva, mert egyes rendszereken a WebView2 csendben összeomolhat.
+                var options = new CoreWebView2EnvironmentOptions(
+                    "--disable-gpu --disable-gpu-compositing");
+
+                var env = await CoreWebView2Environment.CreateAsync(null, userData, options);
                 await WV2_map.EnsureCoreWebView2Async(env);
 
                 string mapFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MapHost");
@@ -571,7 +583,7 @@ namespace Thesis_testing_1
 
                 WV2_map.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 WV2_map.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                WV2_map.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                WV2_map.CoreWebView2.Settings.AreDevToolsEnabled = false;
 
                 WV2_map.Source = new Uri("https://appassets.thesis.local/planner_map.html");
 
@@ -784,32 +796,66 @@ namespace Thesis_testing_1
             const double sidStepKm = 250;
             const double starStepKm = 250;
 
+            List<(string Name, double Lat, double Lon)> sidResolved =
+                new List<(string Name, double Lat, double Lon)>();
+
+            List<(string Name, double Lat, double Lon)> starResolved =
+                new List<(string Name, double Lat, double Lon)>();
+
             var originDat = FindAirportDat(origin);
             var originLocal = GetLocalFixesForAirportDat(originDat);
             _sidStarResolver.UpdateLocalFixes(originLocal);
 
-            var sidRes = _sidStarResolver.ResolveLegSequence(
-                sidLegs,
-                originPos.Value.Lat,
-                originPos.Value.Lon,
-                sidStepKm);
+            // EN: SID resolving is protected, because some procedure files may contain unsupported or unusual legs.
+            // HU: A SID feloldás külön védve van, mert egyes eljárásfájlok tartalmazhatnak nem támogatott vagy szokatlan szakaszokat.
+            try
+            {
+                var sidRes = _sidStarResolver.ResolveLegSequence(
+                    sidLegs,
+                    originPos.Value.Lat,
+                    originPos.Value.Lon,
+                    sidStepKm);
+
+                if (sidRes != null && sidRes.Points != null)
+                    sidResolved = sidRes.Points;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "SID could not be resolved:\n\n" + ex.Message,
+                    "SID Warning",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
 
             var destDat = FindAirportDat(dest);
             var destLocal = GetLocalFixesForAirportDat(destDat);
             _sidStarResolver.UpdateLocalFixes(destLocal);
 
-            // EN: STAR legs are resolved backwards from the destination airport.
-            // HU: A STAR szakaszok visszafelé, az érkezési repülőtértől kerülnek feloldásra.
-            var starResBack = _sidStarResolver.ResolveLegSequence(
-                starLegs.AsEnumerable().Reverse(),
-                destPos.Value.Lat,
-                destPos.Value.Lon,
-                starStepKm);
+            // EN: STAR resolving is protected separately, so a problematic STAR does not crash the whole planner.
+            // HU: A STAR feloldás külön védve van, így egy problémás STAR nem állítja le az egész útvonaltervezőt.
+            try
+            {
+                var starResBack = _sidStarResolver.ResolveLegSequence(
+                    starLegs.AsEnumerable().Reverse(),
+                    destPos.Value.Lat,
+                    destPos.Value.Lon,
+                    starStepKm);
 
-            var starResolved = starResBack.Points;
-            starResolved.Reverse();
-
-            var sidResolved = sidRes.Points;
+                if (starResBack != null && starResBack.Points != null)
+                {
+                    starResolved = new List<(string Name, double Lat, double Lon)>(starResBack.Points);
+                    starResolved.Reverse();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "STAR could not be resolved:\n\n" + ex.Message,
+                    "STAR Warning",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
 
             (double Lat, double Lon) startAnchor = originPos.Value;
             (double Lat, double Lon) endAnchor = destPos.Value;
@@ -946,11 +992,11 @@ namespace Thesis_testing_1
 
             string wpJson = BuildWaypointsJsonForMap(rr, sidResolved, starResolved);
 
-            // EN: The line is smoothed before drawing it on the Leaflet map.
-            // HU: A vonal a Leaflet térképen való kirajzolás előtt simításra kerül.
-            var smoothPts = SmoothCatmullRom(drawPts, samplesPerSegment: 10, maxSegmentNm: 250);
+            // EN: The line is smoothed lightly before drawing it on the Leaflet map.
+            // HU: A vonal enyhén simításra kerül a Leaflet térképen való kirajzolás előtt.
+            var smoothPts = SmoothCatmullRom(drawPts, samplesPerSegment: 2, maxSegmentNm: 150);
 
-            if (smoothPts.Count > 3000)
+            if (smoothPts.Count > 800)
             {
                 MessageBox.Show(
                     "Route was calculated, but it has too many map points to display safely.",
@@ -1254,9 +1300,7 @@ window.setRouteWithWaypoints(
                 foreach (var id in key)
                 {
                     if (_airwayGraph.Nodes.TryGetValue(id, out var n))
-                    {
                         items.Add((id, n.Lat, n.Lon));
-                    }
                 }
             }
 
@@ -1471,7 +1515,12 @@ window.setRouteWithWaypoints(
             if (s == null)
                 return "";
 
-            return s.Replace("\\", "\\\\").Replace("'", "\\'");
+            return s
+                .Replace("\\", "\\\\")
+                .Replace("'", "\\'")
+                .Replace("\r", "")
+                .Replace("\n", "")
+                .Replace("\t", " ");
         }
 
         private (double Lat, double Lon)? LookupAirport(string icao)
