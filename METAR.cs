@@ -14,17 +14,22 @@ namespace Thesis_testing_1
     {
         private readonly HttpClient httpClient = new HttpClient();
 
-        private const string CheckWxApiKey = "---------------------";
-        private const string RapidApiKey = "------------------------";
+        private const string CheckWxApiKey = "PASTE_CHECKWX_KEY_HERE";
+        private const string RapidApiKey = "PASTE_RAPIDAPI_KEY_HERE";
 
         private Label MetarHeaderLabel;
 
         public METAR()
         {
             InitializeComponent();
+
+            // EN: The form is kept fixed size because the layout was designed for this window size.
+            // HU: Az ablak fix méretű, mert a felület ehhez az elrendezéshez készült.
             this.MaximizeBox = false;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
 
+            // EN: This label shows the selected airport and the observation time above the table.
+            // HU: Ez a címke a kiválasztott repülőteret és a megfigyelés idejét mutatja a táblázat felett.
             MetarHeaderLabel = new Label
             {
                 AutoSize = false,
@@ -40,6 +45,8 @@ namespace Thesis_testing_1
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            // EN: Enables city name suggestions in the input field.
+            // HU: Bekapcsolja a városnév-javaslatokat a beviteli mezőben.
             ConfigureCityAutocomplete(ICAOTextBox);
         }
 
@@ -60,6 +67,8 @@ namespace Thesis_testing_1
             {
                 string icaoCode = userInput;
 
+                // EN: If the user enters a 4-letter ICAO code, the METAR can be requested directly.
+                // HU: Ha a felhasználó 4 betűs ICAO-kódot ad meg, a METAR közvetlenül lekérhető.
                 if (userInput.Length == 4 && userInput.All(char.IsLetter))
                 {
                     await FetchAndDisplayMetar(icaoCode);
@@ -69,6 +78,8 @@ namespace Thesis_testing_1
                 MetarData.Rows.Clear();
                 MetarData.Refresh();
 
+                // EN: If the input is a city name, possible airports are searched first.
+                // HU: Ha a bemenet városnév, először a lehetséges repülőterek keresése történik.
                 List<AirportOption> airports = await FindAirportsWithWxAsync(userInput);
 
                 if (airports.Count == 0)
@@ -97,6 +108,8 @@ namespace Thesis_testing_1
         {
             try
             {
+                // EN: The decoded METAR data is requested from the CheckWX API.
+                // HU: A dekódolt METAR adatok a CheckWX API-ból kerülnek lekérdezésre.
                 string json = await GetMetarJson(icao);
 
                 if (string.IsNullOrWhiteSpace(json))
@@ -123,10 +136,14 @@ namespace Thesis_testing_1
                     return;
                 }
 
+                // EN: The airport name is taken from the METAR response when available.
+                // HU: A repülőtér neve lehetőség szerint a METAR válaszból kerül kiolvasásra.
                 string name =
                     GetTokenString(metar, "station.name") ??
                     GetTokenString(metar, "location.name");
 
+                // EN: If the METAR response does not contain a name, AeroDataBox is used as a fallback.
+                // HU: Ha a METAR válasz nem tartalmaz nevet, akkor az AeroDataBox szolgál tartalékként.
                 if (string.IsNullOrWhiteSpace(name))
                     name = await GetAirportNameFromAeroDataBox(icao) ?? "-";
 
@@ -182,6 +199,8 @@ namespace Thesis_testing_1
                 if (items == null || items.Count == 0)
                     return result;
 
+                // EN: The found airports are converted into combo box items.
+                // HU: A megtalált repülőterek a legördülő lista elemeivé alakulnak.
                 foreach (JToken item in items)
                 {
                     string itemIcao = GetTokenString(item, "icao");
@@ -206,6 +225,8 @@ namespace Thesis_testing_1
 
             string csv = string.Join(",", result.Select(a => a.Icao));
 
+            // EN: Only airports with both METAR and TAF data are kept.
+            // HU: Csak azok a repülőterek maradnak meg, amelyekhez METAR és TAF adat is elérhető.
             HashSet<string> metarStations = await GetStationsWithDataAsync("metar", csv);
             HashSet<string> tafStations = await GetStationsWithDataAsync("taf", csv);
 
@@ -300,10 +321,14 @@ namespace Thesis_testing_1
                 MetarData.Rows.Add(key, string.IsNullOrWhiteSpace(value) ? "-" : value);
             };
 
+            // EN: Basic airport and observation information.
+            // HU: Alap repülőtéri és megfigyelési adatok.
             AddRow("Observed", observedFmt);
             AddRow("ICAO", icaoFromMetar);
             AddRow("Name", name);
 
+            // EN: The important METAR fields are shown in a readable form.
+            // HU: A fontosabb METAR mezők áttekinthető formában jelennek meg.
             AddRow("Pressure", ParsePressure(rawText, metar));
             AddRow("Wind", ParseWind(rawText, metar));
             AddRow("Temperature", ParseTemperature(rawText, metar));
@@ -317,6 +342,8 @@ namespace Thesis_testing_1
 
         private string GetRawMetarText(JObject metar)
         {
+            // EN: Different APIs may use different names for the raw METAR text.
+            // HU: Különböző API-válaszokban a nyers METAR szöveg eltérő néven szerepelhet.
             return GetTokenString(metar, "raw_text") ??
                    GetTokenString(metar, "raw") ??
                    GetTokenString(metar, "text") ??
@@ -341,6 +368,8 @@ namespace Thesis_testing_1
         {
             DateTimeOffset dto;
 
+            // EN: The time group from the raw METAR is preferred because it is already in UTC.
+            // HU: A nyers METAR időcsoportja az elsődleges, mert eleve UTC időt tartalmaz.
             if (TryParseObservedFromRaw(rawText, observedIso, out dto))
                 return dto.ToString("dd MMM HH:mm'Z'", CultureInfo.InvariantCulture).ToUpperInvariant();
 
@@ -357,6 +386,8 @@ namespace Thesis_testing_1
             if (string.IsNullOrWhiteSpace(rawText))
                 return false;
 
+            // EN: Example: 101320Z means day 10, 13:20 UTC.
+            // HU: Példa: a 101320Z jelentése 10. nap, 13:20 UTC.
             Match m = Regex.Match(rawText, @"\b(?<day>\d{2})(?<hour>\d{2})(?<min>\d{2})Z\b");
 
             if (!m.Success)
@@ -388,6 +419,8 @@ namespace Thesis_testing_1
 
         private string ParsePressure(string rawText, JObject metar)
         {
+            // EN: Q1016 in the raw METAR means QNH 1016 hPa.
+            // HU: A nyers METAR-ban a Q1016 jelentése QNH 1016 hPa.
             if (!string.IsNullOrWhiteSpace(rawText))
             {
                 Match q = Regex.Match(rawText, @"\bQ(?<qnh>\d{4})\b");
@@ -412,6 +445,8 @@ namespace Thesis_testing_1
 
             if (!string.IsNullOrWhiteSpace(rawText))
             {
+                // EN: Wind is parsed from the raw METAR to keep the original aviation format.
+                // HU: A széladat a nyers METAR-ból kerül kiolvasásra, hogy megmaradjon az eredeti repülési forma.
                 Match windMatch = Regex.Match(
                     rawText,
                     @"\b(?<dir>VRB|\d{3})(?<speed>\d{2,3})(G(?<gust>\d{2,3}))?KT\b");
@@ -432,6 +467,8 @@ namespace Thesis_testing_1
                     if (!string.IsNullOrWhiteSpace(gust))
                         windText += ", gusting " + int.Parse(gust, CultureInfo.InvariantCulture) + " kt";
 
+                    // EN: Example: 010V080 means the wind direction varies between 010° and 080°.
+                    // HU: Példa: a 010V080 azt jelenti, hogy a szélirány 010° és 080° között változik.
                     Match variableMatch = Regex.Match(rawText, @"\b(?<from>\d{3})V(?<to>\d{3})\b");
 
                     if (variableMatch.Success)
@@ -447,6 +484,8 @@ namespace Thesis_testing_1
                 }
             }
 
+            // EN: If raw parsing does not work, the decoded JSON fields are used.
+            // HU: Ha a nyers szövegből nem sikerül kiolvasni, akkor a dekódolt JSON mezők kerülnek használatra.
             JToken windToken = metar["wind"];
 
             if (windToken != null && windToken.Type == JTokenType.Object)
@@ -480,6 +519,8 @@ namespace Thesis_testing_1
             int temp;
             int dew;
 
+            // EN: Temperature and dew point usually appear together, for example 12/05.
+            // HU: A hőmérséklet és a harmatpont általában együtt szerepel, például 12/05.
             if (TryParseTempDewFromRaw(rawText, out temp, out dew))
                 return temp + " °C";
 
@@ -528,6 +569,8 @@ namespace Thesis_testing_1
 
         private int ParseMetarSignedTemp(string value)
         {
+            // EN: In METAR reports, M means minus temperature.
+            // HU: A METAR jelentésekben az M mínusz hőmérsékletet jelent.
             if (value.StartsWith("M"))
                 return -int.Parse(value.Substring(1), CultureInfo.InvariantCulture);
 
@@ -556,6 +599,8 @@ namespace Thesis_testing_1
 
         private string ParseClouds(string rawText, JObject metar)
         {
+            // EN: Clouds are first parsed from the raw METAR because it keeps codes like OVC029.
+            // HU: A felhőzet először a nyers METAR-ból kerül feldolgozásra, mert abban megmaradnak az OVC029 típusú kódok.
             string fromRaw = ParseCloudsFromRaw(rawText);
 
             if (!string.IsNullOrWhiteSpace(fromRaw))
@@ -608,6 +653,8 @@ namespace Thesis_testing_1
 
             List<string> clouds = new List<string>();
 
+            // EN: Cloud height is given in hundreds of feet, so OVC029 becomes 2900 ft.
+            // HU: A felhőalap száz lábban van megadva, ezért az OVC029 jelentése 2900 ft.
             MatchCollection matches = Regex.Matches(
                 rawText,
                 @"\b(?<code>FEW|SCT|BKN|OVC|VV)(?<height>\d{3})(?<extra>CB|TCU)?\b");
@@ -633,9 +680,13 @@ namespace Thesis_testing_1
         {
             if (!string.IsNullOrWhiteSpace(rawText))
             {
+                // EN: CAVOK means good visibility and no significant clouds or weather.
+                // HU: A CAVOK jó látástávolságot, valamint jelentős felhőzet és időjárás hiányát jelenti.
                 if (Regex.IsMatch(rawText, @"\bCAVOK\b"))
                     return "10 km or more (CAVOK)";
 
+                // EN: American METAR reports often use statute miles.
+                // HU: Az amerikai METAR jelentések gyakran statute mile egységet használnak.
                 Match smMatch = Regex.Match(rawText, @"\b(P?\d+\s\d+/\d+|P?\d+/\d+|P?\d+)SM\b");
 
                 if (smMatch.Success)
@@ -648,6 +699,8 @@ namespace Thesis_testing_1
                     return smRaw + " SM";
                 }
 
+                // EN: In many European METAR reports, 9999 means 10 km or more.
+                // HU: Sok európai METAR jelentésben a 9999 jelentése 10 km vagy annál nagyobb látástávolság.
                 Match metricMatch = Regex.Match(rawText, @"\b(?<vis>\d{4})\b");
 
                 if (metricMatch.Success)
@@ -705,6 +758,8 @@ namespace Thesis_testing_1
             string cleaned = " " + rawText.ToUpperInvariant() + " ";
             List<string> weather = new List<string>();
 
+            // EN: Common weather codes are translated into readable text.
+            // HU: A gyakoribb időjárási kódok olvasható szöveggé alakulnak.
             if (Regex.IsMatch(cleaned, @"\s\+RA\s")) weather.Add("Heavy rain");
             else if (Regex.IsMatch(cleaned, @"\s-RA\s")) weather.Add("Light rain");
             else if (Regex.IsMatch(cleaned, @"\sRA\s")) weather.Add("Rain");
@@ -772,6 +827,8 @@ namespace Thesis_testing_1
 
             string t = tb.Text ?? string.Empty;
 
+            // EN: Autocomplete is disabled for short uppercase inputs because they are probably airport codes.
+            // HU: Rövid nagybetűs bemenetnél az automatikus kiegészítés kikapcsol, mert az valószínűleg repülőtéri kód.
             bool looksLikeCode =
                 t.Length >= 2 &&
                 t.Length <= 4 &&
