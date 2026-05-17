@@ -14,8 +14,8 @@ namespace Thesis_testing_1
     {
         private readonly HttpClient httpClient = new HttpClient();
 
-        private const string CheckWxApiKey = "PASTE_CHECKWX_KEY_HERE";
-        private const string RapidApiKey = "PASTE_RAPIDAPI_KEY_HERE";
+        private const string CheckWxApiKey = "------------------";
+        private const string RapidApiKey = "------------------";
 
         private Label MetarHeaderLabel;
 
